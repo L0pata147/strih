@@ -4,18 +4,28 @@ Lokální aplikace pro Windows, která odstraní pozadí z obrázků postav pomo
 [rembg](https://github.com/danielgatis/rembg). Ovládá se v prohlížeči (Gradio UI na
 `http://127.0.0.1:7860`), ale vše běží jen na tvém PC – nic se nikam neposílá.
 
-## Spuštění
+## Spuštění – přenosná verze (doporučeno, nic se neinstaluje)
+
+1. Stáhni **[Strih-portable-win64.zip](https://github.com/L0pata147/strih/releases/download/portable/Strih-portable-win64.zip)**
+   (obsahuje Python, všechny knihovny i výchozí model).
+2. Rozbal ho kamkoli, třeba na plochu.
+3. Dvakrát klikni na **`start.bat`** ve složce `Strih`. Aplikace se sama otevře v prohlížeči.
+   Ukončíš ji zavřením černého okna.
+
+Pokud máš NVIDIA kartu, při prvním spuštění se zeptá, jestli stáhnout GPU zrychlení
+(jednorázově cca 2–3 GB). Když odpovíš ne, aplikace normálně běží na CPU.
+Výchozí model isnet-anime je přibalený. Další modely se stáhnou samy při prvním použití
+do složky `models` (isnet-general-use ≈ 170 MB, birefnet-portrait ≈ 900 MB).
+
+Windows může při prvním spuštění zobrazit „Systém Windows ochránil váš počítač“, protože
+soubor není podepsaný. Klikni na *Další informace* → *Přesto spustit*.
+
+## Spuštění ze zdrojového kódu (pro vývojáře)
 
 1. Nainstaluj [Python 3.11](https://www.python.org/downloads/) (zaškrtni *Add python.exe to PATH*).
-2. Dvakrát klikni na **`start.bat`**.
-   - **První spuštění** vytvoří virtuální prostředí `.venv`, nainstaluje závislosti a spustí aplikaci.
-     Pokud máš NVIDIA kartu (najde `nvidia-smi`), nainstaluje se `onnxruntime-gpu` včetně CUDA
-     knihoven – stahuje se cca 2–3 GB. Bez NVIDIA karty se použije CPU verze.
-   - **Další spuštění** už jen otevřou aplikaci.
-3. Aplikace se sama otevře v prohlížeči. Ukončíš ji zavřením okna konzole.
-
-Modely se stahují automaticky při prvním použití do `%USERPROFILE%\.u2net`
-(isnet-anime a isnet-general-use ≈ 170 MB, birefnet-portrait ≈ 900 MB).
+2. Spusť **`start.bat`** v kořeni repozitáře. Při prvním spuštění vytvoří `.venv`, nainstaluje závislosti
+   (s NVIDIA kartou i `onnxruntime-gpu` s CUDA knihovnami) a spustí aplikaci. Další spuštění už jen otevřou
+   aplikaci. Modely se ukládají do `%USERPROFILE%\.u2net`.
 
 ## Použití
 
@@ -35,7 +45,8 @@ Obrázky s delší stranou nad 2048 px se před zpracováním zmenší.
 
 ## Řešení problémů
 
-- **Instalace se nepovedla / chci přeinstalovat:** smaž složku `.venv` a spusť `start.bat` znovu.
+- **Instalace se nepovedla / chci přeinstalovat:** u verze ze zdrojáků smaž složku `.venv`,
+  u přenosné verze soubor `python\.strih_installed`, a spusť `start.bat` znovu.
 - **Jiný port:** `start.bat --port 7861`; bez otevírání prohlížeče: `start.bat --no-browser`.
 - **GPU se nepoužije:** v hlavičce aplikace je vidět, zda běží na GPU nebo CPU. Pokud se model na GPU
   nepodaří spustit, aplikace automaticky přepne na CPU. Pomáhá aktualizovat ovladač NVIDIA.
@@ -48,4 +59,5 @@ Obrázky s delší stranou nad 2048 px se před zpracováním zmenší.
 ```
 
 Struktura: `app.py` (UI), `processing.py` (zpracování obrázků, cache modelů, detekce GPU),
-`install_deps.py` (instalace podle GPU), `start.bat` (spouštěč).
+`install_deps.py` (instalace podle GPU), `start.bat` (spouštěč), `tools/build_portable.ps1`
+(sestavení přenosné verze, spouští ho GitHub Actions při každém pushi).

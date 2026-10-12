@@ -3,6 +3,13 @@ setlocal
 cd /d "%~dp0"
 title Strih - odstraneni pozadi
 
+rem UTF-8 pro vystup Pythonu, bez odesilani statistik Gradia
+set "PYTHONUTF8=1"
+set "GRADIO_ANALYTICS_ENABLED=False"
+
+rem Prenosna verze: Python je pribaleny ve slozce python\
+if exist "python\python.exe" goto portable
+
 set "VENV=.venv"
 set "PY=%VENV%\Scripts\python.exe"
 
@@ -39,6 +46,13 @@ if errorlevel 1 (
     pause
     exit /b 1
 )
+goto run
+
+:portable
+set "PY=python\python.exe"
+rem Modely se ukladaji vedle aplikace (vychozi isnet-anime je uz pribaleny)
+set "U2NET_HOME=%~dp0models"
+if not exist "python\.strih_installed" "%PY%" install_deps.py --portable
 
 :run
 echo Spoustim aplikaci, otevre se v prohlizeci. Ukonceni: zavri toto okno nebo Ctrl+C.

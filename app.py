@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import tempfile
 import time
 from pathlib import Path
 
-import gradio as gr
+os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")  # nic neodesílat ven
 
-import processing as proc
+import gradio as gr  # noqa: E402
+
+import processing as proc  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("strih")

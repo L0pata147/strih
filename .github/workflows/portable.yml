@@ -1,0 +1,71 @@
+name: Přenosná verze pro Windows
+
+on:
+  push:
+    branches: [claude/bold-allen-sa9l3n]
+    paths-ignore: ["**.md"]
+  workflow_dispatch:
+
+permissions:
+  contents: write  # zveřejnění ZIPu v GitHub Releases
+
+concurrency:
+  group: portable
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Sestavení
+        run: tools\build_portable.ps1
+
+      - name: Test rozbaleného ZIPu
+        run: |
+          $ErrorActionPreference = "Stop"
+          $ProgressPreference = "SilentlyContinue"
+          7z x dist\Strih-portable-win64.zip -otest -bso0
+          $app = "test\Strih"
+          if (-not (Test-Path "$app\models\isnet-anime.onnx")) { throw "Chybí přibalený model" }
+
+          # jednotkové testy přibaleným Pythonem (pytest jen do testovací kopie)
+          & "$app\python\python.exe" -m pip install -q --no-warn-script-location pytest
+          Copy-Item -Recurse tests $app\tests
+          & "$app\python\python.exe" -m pytest -q "$app\tests"
+          if ($LASTEXITCODE -ne 0) { throw "pytest selhal" }
+
+          # spuštění přes start.bat, přesně jako u uživatele
+          $proc = Start-Process cmd.exe -ArgumentList "/c", "start.bat", "--no-browser" `
+            -WorkingDirectory $app -PassThru -NoNewWindow `
+            -RedirectStandardOutput app.log -RedirectStandardError app.err
+          Invoke-WebRequest https://raw.githubusercontent.com/danielgatis/rembg/main/examples/anime-girl-1.jpg -OutFile sample.jpg
+          & "$app\python\python.exe" tools\smoke_test.py http://127.0.0.1:7860 sample.jpg
+          $code = $LASTEXITCODE
+          Get-Content app.log, app.err
+          if ($code -ne 0) { throw "Smoke test selhal" }
+          if (Select-String -Path app.err -Pattern "Downloading data from" -Quiet) { throw "Model se stahoval, i když má být přibalený" }
+          if (-not (Test-Path "$app\python\.strih_installed")) { throw "start.bat nedokončil první spuštění" }
+          taskkill /T /F /PID $proc.Id | Out-Null
+          exit 0
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Strih-portable-win64
+          path: dist/Strih-portable-win64.zip
+          retention-days: 7
+
+      - name: Zveřejnění v Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete portable --yes --cleanup-tag 2>$null
+          gh release create portable dist\Strih-portable-win64.zip `
+            --target $env:GITHUB_SHA --latest `
+            --title "Střih – přenosná verze pro Windows" `
+            --notes "Stáhni ZIP, rozbal ho a spusť **start.bat**. Python ani nic dalšího není potřeba instalovat. Sestaveno z commitu $env:GITHUB_SHA."
