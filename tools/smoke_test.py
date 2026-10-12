@@ -25,6 +25,7 @@ def wait_for(url: str, timeout: float = 180) -> None:
 
 
 def main() -> None:
+    sys.stdout.reconfigure(encoding="utf-8")  # konzole na Windows bývá cp1252
     url, sample = sys.argv[1], sys.argv[2]
     wait_for(url)
     broken = Path(tempfile.mkdtemp()) / "poskozeny.png"
