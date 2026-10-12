@@ -47,9 +47,9 @@ foreach ($f in "app.py", "processing.py", "install_deps.py", "requirements.txt",
 }
 
 Write-Host "== Předstahuji výchozí model isnet-anime =="
-$env:U2NET_HOME = Join-Path $App "models"
+$env:REMBG_HOME = $App  # rembg uloží model do models\isnet-anime\
 Invoke-Checked $Py @("-c", "from rembg import new_session; new_session('isnet-anime')")
-Remove-Item Env:U2NET_HOME
+Remove-Item Env:REMBG_HOME
 
 # úklid: bytecode se vytvoří znovu při prvním spuštění
 Get-ChildItem $App -Recurse -Directory -Filter "__pycache__" | Remove-Item -Recurse -Force

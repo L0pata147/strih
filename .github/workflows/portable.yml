@@ -32,7 +32,7 @@ jobs:
           $ProgressPreference = "SilentlyContinue"
           7z x dist\Strih-portable-win64.zip -otest -bso0
           $app = "test\Strih"
-          if (-not (Test-Path "$app\models\isnet-anime.onnx")) { throw "Chybí přibalený model" }
+          if (-not (Test-Path "$app\models\isnet-anime\isnet-anime.onnx")) { throw "Chybí přibalený model" }
 
           # jednotkové testy přibaleným Pythonem (pytest jen do testovací kopie)
           & "$app\python\python.exe" -m pip install -q --no-warn-script-location pytest

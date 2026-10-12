@@ -25,7 +25,7 @@ soubor není podepsaný. Klikni na *Další informace* → *Přesto spustit*.
 1. Nainstaluj [Python 3.11](https://www.python.org/downloads/) (zaškrtni *Add python.exe to PATH*).
 2. Spusť **`start.bat`** v kořeni repozitáře. Při prvním spuštění vytvoří `.venv`, nainstaluje závislosti
    (s NVIDIA kartou i `onnxruntime-gpu` s CUDA knihovnami) a spustí aplikaci. Další spuštění už jen otevřou
-   aplikaci. Modely se ukládají do `%USERPROFILE%\.u2net`.
+   aplikaci. Modely se ukládají do `%USERPROFILE%\.rembg\models`.
 
 ## Použití
 

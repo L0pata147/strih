@@ -50,8 +50,9 @@ goto run
 
 :portable
 set "PY=python\python.exe"
-rem Modely se ukladaji vedle aplikace (vychozi isnet-anime je uz pribaleny)
-set "U2NET_HOME=%~dp0models"
+rem Modely se ukladaji vedle aplikace do models\ (vychozi isnet-anime je uz pribaleny)
+set "U2NET_HOME="
+set "REMBG_HOME=%~dp0"
 if not exist "python\.strih_installed" "%PY%" install_deps.py --portable
 
 :run
