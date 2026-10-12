@@ -6,6 +6,8 @@ title Strih - odstraneni pozadi
 rem UTF-8 pro vystup Pythonu, bez odesilani statistik Gradia
 set "PYTHONUTF8=1"
 set "GRADIO_ANALYTICS_ENABLED=False"
+rem Vetsi mezipamet pro CUDA jadra kompilovana ovladacem (jinak se kompiluji pri kazdem startu)
+set "CUDA_CACHE_MAXSIZE=4294967296"
 
 rem Prenosna verze: Python je pribaleny ve slozce python\
 if exist "python\python.exe" goto portable

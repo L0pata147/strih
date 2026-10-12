@@ -33,7 +33,10 @@ def run(files, model_name, alpha_matting, use_bg_color, bg_color, progress=gr.Pr
     except ValueError:
         raise gr.Error(f"Neplatná barva pozadí: {bg_color}") from None
 
-    progress(0, desc=f"Načítám model {model_name}…")
+    if proc.uses_gpu() and model_name not in proc._sessions:
+        progress(0, desc=f"Načítám model {model_name} na GPU (poprvé to může trvat až minutu)…")
+    else:
+        progress(0, desc=f"Načítám model {model_name}…")
     try:
         proc.get_session(model_name)
     except Exception as exc:  # noqa: BLE001
@@ -42,6 +45,9 @@ def run(files, model_name, alpha_matting, use_bg_color, bg_color, progress=gr.Pr
             f"Model {model_name} se nepodařilo načíst: {exc}. "
             "Při prvním použití se model stahuje z internetu – zkontroluj připojení."
         ) from None
+    if proc.gpu_fallback_reason:
+        gr.Warning(proc.gpu_fallback_reason, title="GPU nepoužito", duration=None)
+        proc.gpu_fallback_reason = None
 
     results: list[proc.Result] = []
     errors: list[str] = []
@@ -154,7 +160,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Střih – odstranění pozadí")
     parser.add_argument("--port", type=int, default=None, help="port (výchozí 7860 nebo první volný)")
     parser.add_argument("--no-browser", action="store_true", help="neotevírat prohlížeč")
+    parser.add_argument("--cpu", action="store_true", help="nepoužívat GPU")
     args = parser.parse_args()
+    if args.cpu:
+        os.environ["STRIH_CPU"] = "1"
 
     log.info("Výpočetní zařízení: %s", proc.device_label())
     build_ui().queue().launch(

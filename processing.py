@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import os
+import sys
 import threading
 import zipfile
 from dataclasses import dataclass
@@ -46,11 +48,29 @@ _providers: list[str] | None = None
 _sessions: dict[str, object] = {}
 _session_lock = threading.Lock()
 
+# Načtení modelu na GPU (vč. zkušebního výpočtu) trvá normálně pár sekund. U některých karet
+# ovladač při prvním použití kompiluje CUDA jádra i desítky minut -> po limitu přepneme na CPU.
+GPU_LOAD_TIMEOUT = 60
+# Po selhání GPU si to zapamatujeme, ať další starty nečekají znovu (smazáním se GPU zase zapne)
+CPU_ONLY_MARKER = Path(sys.prefix) / ".strih_cpu_only"
+# Hláška pro UI, proč se přešlo na CPU (aplikace ji zobrazí jednou)
+gpu_fallback_reason: str | None = None
+
+CUDA_PROVIDER = (
+    "CUDAExecutionProvider",
+    # bez vyčerpávajícího hledání cuDNN algoritmů -> rychlejší první výpočet
+    {"cudnn_conv_algo_search": "HEURISTIC"},
+)
+
 
 def get_providers() -> list[str]:
     """Vrátí execution providery pro onnxruntime: CUDA, pokud je k dispozici, jinak CPU."""
     global _providers
     if _providers is not None:
+        return _providers
+
+    if os.environ.get("STRIH_CPU") or CPU_ONLY_MARKER.exists():
+        _providers = ["CPUExecutionProvider"]
         return _providers
 
     import onnxruntime as ort
@@ -71,13 +91,74 @@ def get_providers() -> list[str]:
     return _providers
 
 
+def uses_gpu() -> bool:
+    return "CUDAExecutionProvider" in get_providers()
+
+
 def device_label() -> str:
-    return "GPU (NVIDIA CUDA)" if "CUDAExecutionProvider" in get_providers() else "CPU"
+    return "GPU (NVIDIA CUDA)" if uses_gpu() else "CPU"
+
+
+def _disable_gpu(reason: str, remember: bool) -> None:
+    global _providers, gpu_fallback_reason
+    log.warning("%s Přepínám na CPU.", reason)
+    _providers = ["CPUExecutionProvider"]
+    gpu_fallback_reason = reason
+    if remember:
+        try:
+            CPU_ONLY_MARKER.write_text(reason + "\n", encoding="utf-8")
+        except OSError:
+            pass
+
+
+def _download_model(model_name: str) -> None:
+    """Stáhne model předem, aby se stahování nepočítalo do limitu pro načtení na GPU."""
+    from rembg.sessions import sessions_class
+
+    for cls in sessions_class:
+        if cls.name() == model_name:
+            cls.download_models()
+            return
+
+
+def _load_on_gpu(model_name: str, timeout: float):
+    """Načte model na GPU a udělá zkušební výpočet. Vrací session, nebo None při selhání/timeoutu."""
+    from rembg import new_session
+
+    result: dict[str, object] = {}
+
+    def worker():
+        try:
+            session = new_session(model_name, providers=[CUDA_PROVIDER, "CPUExecutionProvider"])
+            if "CUDAExecutionProvider" not in session.inner_session.get_providers():
+                # onnxruntime při chybějících CUDA knihovnách často jen tiše přejde na CPU
+                result["error"] = "CUDA není funkční (chybí knihovny nebo ovladač?)."
+                return
+            session.predict(Image.new("RGB", (64, 64)))  # první výpočet = kompilace jader
+            result["session"] = session
+        except Exception as exc:  # noqa: BLE001
+            log.debug("Načtení na GPU selhalo", exc_info=True)
+            result["error"] = f"Model se nepodařilo spustit na GPU ({exc})."
+
+    # daemon: když se GPU zasekne, vlákno nebrání ukončení aplikace
+    thread = threading.Thread(target=worker, name=f"gpu-load-{model_name}", daemon=True)
+    thread.start()
+    thread.join(timeout)
+    if thread.is_alive():
+        _disable_gpu(
+            f"Načtení modelu na GPU trvalo déle než {timeout:.0f} s (ovladač nejspíš kompiluje "
+            "CUDA jádra pro tuto kartu). Aplikace teď běží na CPU.",
+            remember=True,
+        )
+        return None
+    if "error" in result:
+        _disable_gpu(str(result["error"]), remember=False)
+        return None
+    return result["session"]
 
 
 def get_session(model_name: str):
-    """Načte model jednou a dál ho vrací z cache. Při selhání CUDA přepne na CPU."""
-    global _providers
+    """Načte model jednou a dál ho vrací z cache. Když GPU selže nebo se zasekne, přepne na CPU."""
     if model_name not in MODELS:
         raise ValueError(f"Neznámý model: {model_name}")
 
@@ -87,21 +168,12 @@ def get_session(model_name: str):
 
         from rembg import new_session
 
-        providers = get_providers()
-        try:
-            session = new_session(model_name, providers=providers)
-        except Exception:
-            if providers == ["CPUExecutionProvider"]:
-                raise
-            log.warning("Model se nepodařilo spustit na GPU, přepínám na CPU.", exc_info=True)
-            _providers = ["CPUExecutionProvider"]
-            session = new_session(model_name, providers=_providers)
-
-        # onnxruntime při chybějících CUDA knihovnách často jen tiše přejde na CPU
-        active = session.inner_session.get_providers()
-        if "CUDAExecutionProvider" in (_providers or []) and "CUDAExecutionProvider" not in active:
-            log.warning("CUDA není funkční (chybí knihovny/ovladač?), model běží na CPU.")
-            _providers = ["CPUExecutionProvider"]
+        session = None
+        if uses_gpu():
+            _download_model(model_name)
+            session = _load_on_gpu(model_name, GPU_LOAD_TIMEOUT)
+        if session is None:
+            session = new_session(model_name, providers=["CPUExecutionProvider"])
 
         _sessions[model_name] = session
         return session

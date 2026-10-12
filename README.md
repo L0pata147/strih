@@ -48,8 +48,11 @@ Obrázky s delší stranou nad 2048 px se před zpracováním zmenší.
 - **Instalace se nepovedla / chci přeinstalovat:** u verze ze zdrojáků smaž složku `.venv`,
   u přenosné verze soubor `python\.strih_installed`, a spusť `start.bat` znovu.
 - **Jiný port:** `start.bat --port 7861`; bez otevírání prohlížeče: `start.bat --no-browser`.
-- **GPU se nepoužije:** v hlavičce aplikace je vidět, zda běží na GPU nebo CPU. Pokud se model na GPU
-  nepodaří spustit, aplikace automaticky přepne na CPU. Pomáhá aktualizovat ovladač NVIDIA.
+- **GPU se nepoužije / zasekává se:** v hlavičce aplikace je vidět, zda běží na GPU nebo CPU. Pokud se model
+  na GPU nepodaří spustit nebo se do 60 s nenačte (u některých karet ovladač poprvé dlouho kompiluje
+  CUDA jádra), aplikace přepne na CPU a zapamatuje si to v souboru `python\.strih_cpu_only`
+  (u verze ze zdrojáků `.venv\.strih_cpu_only`). Smazáním souboru se GPU zkusí znovu.
+  Pomáhá aktualizovat ovladač NVIDIA. Vynutit CPU jde přes `start.bat --cpu`.
 
 ## Pro vývojáře
 

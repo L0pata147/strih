@@ -110,3 +110,82 @@ def test_save_multiple_zip(tmp_path):
     assert out.suffix == ".zip"
     with zipfile.ZipFile(out) as zf:
         assert sorted(zf.namelist()) == ["x.png", "x_2.png", "y.png"]
+
+
+# --- volba GPU/CPU (GPU simulované falešnou session) ---------------------------------------
+
+
+class FakeSession:
+    def __init__(self, providers, hang=0.0, fail=False, silent_cpu=False):
+        names = [p[0] if isinstance(p, tuple) else p for p in providers]
+        if fail and "CUDAExecutionProvider" in names:
+            raise RuntimeError("CUDA init failed")
+        self.names = ["CPUExecutionProvider"] if silent_cpu else names
+        self.hang = hang if "CUDAExecutionProvider" in self.names else 0.0
+        self.inner_session = self
+
+    def get_providers(self):
+        return self.names
+
+    def predict(self, img):
+        import time
+        time.sleep(self.hang)  # simulace kompilace CUDA jader při prvním výpočtu
+        return [img]
+
+
+@pytest.fixture
+def fake_gpu(monkeypatch, tmp_path):
+    import rembg
+
+    monkeypatch.setattr(proc, "_providers", ["CUDAExecutionProvider", "CPUExecutionProvider"])
+    monkeypatch.setattr(proc, "_sessions", {})
+    monkeypatch.setattr(proc, "gpu_fallback_reason", None)
+    monkeypatch.setattr(proc, "CPU_ONLY_MARKER", tmp_path / ".strih_cpu_only")
+    monkeypatch.setattr(proc, "GPU_LOAD_TIMEOUT", 0.5)
+    monkeypatch.setattr(proc, "_download_model", lambda name: None)
+
+    def install(**behaviour):
+        monkeypatch.setattr(rembg, "new_session", lambda name, providers: FakeSession(providers, **behaviour))
+
+    return install
+
+
+def test_gpu_ok(fake_gpu):
+    fake_gpu()
+    session = proc.get_session("isnet-anime")
+    assert session.get_providers()[0] == "CUDAExecutionProvider"
+    assert proc.device_label().startswith("GPU") and proc.gpu_fallback_reason is None
+
+
+def test_gpu_hang_falls_back_to_cpu_and_remembers(fake_gpu):
+    fake_gpu(hang=5)
+    session = proc.get_session("isnet-anime")
+    assert session.get_providers() == ["CPUExecutionProvider"]
+    assert proc.device_label() == "CPU"
+    assert "déle než" in proc.gpu_fallback_reason
+    assert proc.CPU_ONLY_MARKER.exists()
+
+
+def test_gpu_error_falls_back_without_marker(fake_gpu):
+    fake_gpu(fail=True)
+    assert proc.get_session("isnet-anime").get_providers() == ["CPUExecutionProvider"]
+    assert "CUDA init failed" in proc.gpu_fallback_reason
+    assert not proc.CPU_ONLY_MARKER.exists()
+
+
+def test_gpu_silently_on_cpu_detected(fake_gpu):
+    fake_gpu(silent_cpu=True)
+    proc.get_session("isnet-anime")
+    assert proc.device_label() == "CPU" and "CUDA není funkční" in proc.gpu_fallback_reason
+
+
+def test_cpu_forced_by_env_or_marker(monkeypatch, tmp_path):
+    marker = tmp_path / ".strih_cpu_only"
+    monkeypatch.setattr(proc, "CPU_ONLY_MARKER", marker)
+    monkeypatch.setattr(proc, "_providers", None)
+    monkeypatch.setenv("STRIH_CPU", "1")
+    assert proc.get_providers() == ["CPUExecutionProvider"]
+    monkeypatch.delenv("STRIH_CPU")
+    monkeypatch.setattr(proc, "_providers", None)
+    marker.write_text("x")
+    assert proc.get_providers() == ["CPUExecutionProvider"]
