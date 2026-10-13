@@ -29,17 +29,23 @@ soubor není podepsaný. Klikni na *Další informace* → *Přesto spustit*.
 
 ## Použití
 
-1. Přetáhni jeden nebo více obrázků (JPG, PNG, WEBP).
-2. Vyber model:
+1. **Obrázky** – přetáhni jeden nebo více obrázků (JPG, PNG, WEBP). Hned uvidíš náhledy
+   a upozornění na vadné soubory.
+2. **Model**:
    | Model | Kdy použít |
    |---|---|
-   | **isnet-anime** (výchozí) | anime, manga, kreslené postavy, ilustrace |
-   | **birefnet-portrait** | fotky lidí, portréty, cosplay (pomalejší) |
-   | **isnet-general-use** | vše ostatní – figurky, 3D rendery, zvířata, předměty |
-3. Volitelně zapni **Alpha matting** (jemnější okraje vlasů, ale výrazně pomalejší)
-   nebo **Nahradit pozadí barvou**.
-4. Klikni na **Odstranit pozadí**. Vedle originálu uvidíš výsledek na šachovnici
-   a stáhneš PNG s průhledností (u více obrázků ZIP).
+   | 🎨 **isnet-anime** (výchozí) | anime, manga, kreslené postavy, ilustrace |
+   | 🧑 **birefnet-portrait** | fotky lidí, portréty, cosplay (pomalejší) |
+   | 🧩 **isnet-general-use** | vše ostatní – figurky, 3D rendery, zvířata, předměty |
+3. **Výstup** – volitelně *Alpha matting* (jemnější vlasy, pomalejší) a *Pozadí výsledku*:
+   průhledné, nebo barva (předvolby bílá / černá / green screen nebo vlastní).
+   V části **Pokročilé** je oříznutí na postavu s okrajem, vyhlazení masky a uložení černobílé masky.
+4. Klikni na **Odstranit pozadí** (nebo <kbd>Ctrl</kbd>+<kbd>Enter</kbd>).
+
+Výsledek porovnáš s originálem posuvníkem. Kliknutím na náhled ve výsledcích přepneš obrázek
+a přepínačem *Pozadí náhledu* (šachovnice / bílá / černá / šedá) zkontroluješ okraje.
+Stáhnout jde ZIP se vším i každý soubor zvlášť. Výsledky se navíc ukládají do složky
+`vystupy` vedle aplikace (tlačítko *Otevřít složku s výsledky*). Nastavení si aplikace pamatuje.
 
 Obrázky s delší stranou nad 2048 px se před zpracováním zmenší.
 

@@ -94,22 +94,59 @@ def test_unique_names():
     ]
 
 
-def _result(name):
-    return proc.Result(name, Image.new("RGB", (8, 8)), Image.new("RGBA", (8, 8), (1, 2, 3, 0)))
+def _result(name, mask=False):
+    out = Image.new("RGBA", (8, 8), (1, 2, 3, 0))
+    return proc.Result(name, Image.new("RGB", (8, 8)), out, mask=out.getchannel("A") if mask else None)
 
 
 def test_save_single_png(tmp_path):
-    out = proc.save_outputs([_result("x_bez_pozadi.png")], tmp_path)
-    assert out.suffix == ".png"
-    with Image.open(out) as im:
+    saved = proc.save_outputs([_result("x_bez_pozadi.png")], tmp_path)
+    assert saved.zip is None and saved.downloads == saved.images
+    with Image.open(saved.images[0]) as im:
         assert im.mode == "RGBA" and im.getpixel((0, 0))[3] == 0
 
 
 def test_save_multiple_zip(tmp_path):
-    out = proc.save_outputs([_result("x.png"), _result("x.png"), _result("y.png")], tmp_path)
-    assert out.suffix == ".zip"
-    with zipfile.ZipFile(out) as zf:
+    saved = proc.save_outputs([_result("x.png"), _result("x.png"), _result("y.png")], tmp_path)
+    assert saved.downloads[0] == saved.zip
+    with zipfile.ZipFile(saved.zip) as zf:
         assert sorted(zf.namelist()) == ["x.png", "x_2.png", "y.png"]
+
+
+def test_save_with_mask_makes_zip(tmp_path):
+    saved = proc.save_outputs([_result("a_bez_pozadi.png", mask=True)], tmp_path)
+    assert [p.name for p in saved.masks] == ["a_maska.png"]
+    with zipfile.ZipFile(saved.zip) as zf:
+        assert sorted(zf.namelist()) == ["a_bez_pozadi.png", "a_maska.png"]
+
+
+def _cutout():
+    """100×80 průhledný obrázek s neprůhledným obdélníkem 20×40 na (30, 10)."""
+    img = Image.new("RGBA", (100, 80), (0, 0, 0, 0))
+    img.paste((255, 0, 0, 255), (30, 10, 50, 50))
+    return img
+
+
+def test_subject_box_with_padding():
+    assert proc.subject_box(_cutout(), 0) == (30, 10, 50, 50)
+    assert proc.subject_box(_cutout(), 10) == (26, 6, 54, 54)  # 10 % ze 40 px
+    assert proc.subject_box(Image.new("RGBA", (10, 10)), 5) is None
+
+
+def test_process_file_crop_mask_and_bg(tmp_path, monkeypatch):
+    monkeypatch.setattr(proc, "remove_background", lambda img, model, opts: _cutout())
+    src = make_image(tmp_path / "postava.png", size=(100, 80), fmt="PNG")
+    opts = proc.Options(crop=True, crop_padding=50, bg_color=(0, 255, 0), export_mask=True)
+    r = proc.process_file(src, "isnet-anime", opts)
+    assert r.output.size == r.original.size == r.mask.size == (60, 80)  # okraj 20 px přesahuje
+    assert r.output.mode == "RGB" and r.output.getpixel((0, 0)) == (0, 255, 0)
+    assert r.mask.getpixel((30, 40)) == 255 and r.mask.getpixel((0, 0)) == 0
+    assert r.name == "postava_bez_pozadi.png"
+
+
+@pytest.mark.parametrize("bg,pixel", [("white", (255, 255, 255)), ("black", (0, 0, 0)), ("checker", (255, 255, 255))])
+def test_preview_on(bg, pixel):
+    assert proc.preview_on(Image.new("RGBA", (40, 40)), bg).getpixel((1, 1)) == pixel
 
 
 # --- volba GPU/CPU (GPU simulované falešnou session) ---------------------------------------

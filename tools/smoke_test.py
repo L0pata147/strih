@@ -32,18 +32,21 @@ def main() -> None:
     broken.write_bytes(b"tohle neni obrazek")
 
     client = Client(url, verbose=False)
-    originals, previews, download, status = client.predict(
+    gallery, _slider, downloads, status, *_ = client.predict(
         [handle_file(sample), handle_file(str(broken))],
-        "isnet-anime", False, False, "#ffffff",
+        "isnet-anime", False, 10, "Průhledné", "#ffffff", False, 5, False, True, "checker",
         api_name="/run",
     )
     print(status)
     assert "1/2" in status, status
     assert "poskozeny.png" in status, status
-    assert len(originals) == len(previews) == 1
-    with Image.open(download) as im:
+    names = sorted(Path(d).name for d in downloads)
+    print("ke stažení:", names)
+    stem = Path(sample).stem
+    assert names == sorted(["bez_pozadi.zip", f"{stem}_bez_pozadi.png", f"{stem}_maska.png"]), names
+    with Image.open(next(d for d in downloads if d.endswith("_bez_pozadi.png"))) as im:
         alpha = im.getchannel("A").getextrema()
-        print("výstup:", Path(download).name, im.mode, im.size, "alpha", alpha)
+        print("výstup:", im.mode, im.size, "alpha", alpha)
         assert im.mode == "RGBA" and alpha == (0, 255), alpha
     print("SMOKE TEST OK")
 

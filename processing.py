@@ -236,9 +236,18 @@ def checkerboard(size: tuple[int, int], square: int = 16) -> Image.Image:
 
 
 def preview_on_checkerboard(img: Image.Image) -> Image.Image:
+    return preview_on(img, "checker")
+
+
+PREVIEW_BACKGROUNDS = {"checker": None, "white": (255, 255, 255), "black": (0, 0, 0), "gray": (128, 128, 128)}
+
+
+def preview_on(img: Image.Image, background: str = "checker") -> Image.Image:
+    """Náhled průhledného obrázku na šachovnici nebo na plné barvě."""
     rgba = img.convert("RGBA")
-    board = checkerboard(rgba.size).convert("RGBA")
-    return Image.alpha_composite(board, rgba).convert("RGB")
+    color = PREVIEW_BACKGROUNDS.get(background)
+    bg = checkerboard(rgba.size) if color is None else Image.new("RGB", rgba.size, color)
+    return Image.alpha_composite(bg.convert("RGBA"), rgba).convert("RGB")
 
 
 def hex_to_rgb(color: str) -> tuple[int, int, int]:
@@ -267,48 +276,95 @@ def apply_background(img: Image.Image, color: tuple[int, int, int]) -> Image.Ima
 # ---------------------------------------------------------------------------
 
 
-def remove_background(img: Image.Image, model_name: str, alpha_matting: bool) -> Image.Image:
+@dataclass
+class Options:
+    """Nastavení zpracování z UI."""
+
+    alpha_matting: bool = False
+    matting_erode: int = 10  # větší = agresivnější ořez okrajů při alpha mattingu
+    smooth_mask: bool = False  # vyhlazení masky (rembg post_process_mask)
+    crop: bool = False  # oříznout na postavu
+    crop_padding: int = 5  # okraj kolem postavy v % delší strany výřezu
+    bg_color: tuple[int, int, int] | None = None  # None = průhledné pozadí
+    export_mask: bool = False  # uložit i černobílou masku
+
+
+def remove_background(img: Image.Image, model_name: str, opts: Options | None = None) -> Image.Image:
     from rembg import remove
 
+    opts = opts or Options()
     session = get_session(model_name)
-    kwargs = {}
-    if alpha_matting:
-        kwargs = dict(
+    kwargs: dict = {"post_process_mask": opts.smooth_mask}
+    if opts.alpha_matting:
+        kwargs.update(
             alpha_matting=True,
             alpha_matting_foreground_threshold=240,
             alpha_matting_background_threshold=10,
-            alpha_matting_erode_size=10,
+            alpha_matting_erode_size=opts.matting_erode,
         )
     result = remove(img, session=session, **kwargs)
     return result.convert("RGBA")
 
 
+def subject_box(cutout: Image.Image, padding_pct: float) -> tuple[int, int, int, int] | None:
+    """Obdélník kolem postavy (neprůhledných pixelů) rozšířený o okraj; může přesahovat obrázek."""
+    bbox = cutout.getchannel("A").point(lambda a: 255 if a > 10 else 0).getbbox()
+    if bbox is None:
+        return None
+    left, top, right, bottom = bbox
+    pad = round(max(right - left, bottom - top) * padding_pct / 100)
+    return left - pad, top - pad, right + pad, bottom + pad
+
+
+def model_is_downloaded(model_name: str) -> bool:
+    try:
+        from rembg.sessions import sessions_class
+
+        for cls in sessions_class:
+            if cls.name() == model_name:
+                return cls.resolve_existing(f"{model_name}.onnx") is not None
+    except Exception:  # noqa: BLE001 - jen informace pro UI
+        pass
+    return True
+
+
 @dataclass
 class Result:
     name: str  # název výstupního souboru (…_bez_pozadi.png)
-    original: Image.Image
+    original: Image.Image  # vstup po zmenšení (a oříznutí), pro porovnání
     output: Image.Image  # RGBA, nebo RGB pokud bylo pozadí nahrazeno barvou
+    mask: Image.Image | None = None  # černobílá maska (L)
     resized_from: tuple[int, int] | None = None
+    seconds: float = 0.0
 
 
-def process_file(
-    path: str | Path,
-    model_name: str,
-    alpha_matting: bool,
-    bg_color: tuple[int, int, int] | None = None,
-) -> Result:
+def process_file(path: str | Path, model_name: str, opts: Options | None = None) -> Result:
+    import time
+
+    opts = opts or Options()
+    started = time.perf_counter()
     path = Path(path)
     img = load_image(path)
     orig_size = img.size
     img = limit_size(img)
-    output = remove_background(img, model_name, alpha_matting)
-    if bg_color is not None:
-        output = apply_background(output, bg_color)
+    cutout = remove_background(img, model_name, opts)
+    original = img
+
+    if opts.crop:
+        box = subject_box(cutout, opts.crop_padding)
+        if box is not None:
+            # crop mimo obrázek doplní průhlednost -> okraj kolem postavy
+            cutout = cutout.crop(box)
+            original = img.convert("RGBA").crop(box)
+
+    output = apply_background(cutout, opts.bg_color) if opts.bg_color is not None else cutout
     return Result(
         name=f"{path.stem}_bez_pozadi.png",
-        original=img,
+        original=original,
         output=output,
+        mask=cutout.getchannel("A") if opts.export_mask else None,
         resized_from=orig_size if img.size != orig_size else None,
+        seconds=time.perf_counter() - started,
     )
 
 
@@ -326,22 +382,38 @@ def unique_names(names: list[str]) -> list[str]:
     return out
 
 
-def save_outputs(results: list[Result], out_dir: Path) -> Path:
-    """Uloží výsledky jako PNG; při více obrázcích vrátí cestu k ZIP, jinak k PNG."""
+@dataclass
+class Saved:
+    images: list[Path]  # výsledné PNG ve stejném pořadí jako výsledky
+    masks: list[Path]
+    zip: Path | None  # jen pokud je souborů víc
+
+    @property
+    def downloads(self) -> list[Path]:
+        """Soubory ke stažení: nejdřív ZIP (pokud je), pak jednotlivé obrázky a masky."""
+        return ([self.zip] if self.zip else []) + self.images + self.masks
+
+
+def save_outputs(results: list[Result], out_dir: Path) -> Saved:
+    """Uloží výsledky (a masky) jako PNG; při více souborech přidá i ZIP se vším."""
     out_dir.mkdir(parents=True, exist_ok=True)
     names = unique_names([r.name for r in results])
-    paths = []
+    images, masks = [], []
     for result, name in zip(results, names):
         p = out_dir / name
         result.output.save(p, format="PNG", optimize=True)
-        paths.append(p)
+        images.append(p)
+        if result.mask is not None:
+            m = out_dir / name.replace("_bez_pozadi.png", "_maska.png")
+            result.mask.save(m, format="PNG", optimize=True)
+            masks.append(m)
 
-    if len(paths) == 1:
-        return paths[0]
-
-    zip_path = out_dir / "bez_pozadi.zip"
-    # PNG už je komprimované, ZIP_STORED je rychlejší a velikost skoro stejná
-    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_STORED) as zf:
-        for p in paths:
-            zf.write(p, arcname=p.name)
-    return zip_path
+    files = images + masks
+    zip_path = None
+    if len(files) > 1:
+        zip_path = out_dir / "bez_pozadi.zip"
+        # PNG už je komprimované, ZIP_STORED je rychlejší a velikost skoro stejná
+        with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_STORED) as zf:
+            for f in files:
+                zf.write(f, arcname=f.name)
+    return Saved(images, masks, zip_path)
